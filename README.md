@@ -18,3 +18,48 @@ While Serde is an excellent and versatile serialization framework that supports 
 ## Installation
 
 Add this to your `Cargo.toml`:
+
+```
+[dependencies]
+karya_json = "0.1.0"
+```
+
+## Quick Start
+
+Karya JSON provides a simple API for parsing JSON strings and working with JSON data:
+
+1. Parse a JSON string into a `JsonValue`:
+   - Use `JsonParser::new(json_string)` to create a parser
+   - Call `parser.parse()` to get a `JsonValue`
+
+2. Access data from the parsed JSON:
+   - Use pattern matching to work with different JSON types
+   - Access object fields, array elements, and primitive values
+
+3. Convert Rust data to JSON:
+   - Create `JsonValue` instances for your data
+   - Use the `Display` implementation to get the JSON string
+
+## Features
+
+- **Parsing**: Convert JSON strings into Rust data structures
+- **Serialization**: Convert Rust data structures into JSON strings
+- **Type Safety**: Strong typing for JSON values
+- **Error Handling**: Detailed error messages for parsing and serialization issues
+
+## Error Handling
+
+Karya JSON provides detailed error types for both serialization and deserialization:
+
+- `DeserializeError::InvalidJson`: When the JSON syntax is invalid
+- `DeserializeError::MissingField`: When a required field is missing
+- `DeserializeError::TypeMismatch`: When a value has an unexpected type
+- `DeserializeError::InvalidValue`: When a value is invalid for its context
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

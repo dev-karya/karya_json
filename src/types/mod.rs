@@ -1,22 +1,104 @@
+//! Core JSON types and parsing functionality for the Karya JSON library.
+//!
+//! This module provides the fundamental types and functions for working with JSON data:
+//! - `JsonValue`: An enum representing all possible JSON value types
+//! - `JsonParser`: A parser for converting JSON strings into `JsonValue` instances
+//!
+//! # Examples
+//!
+//! ```
+//! use karya_json::types::{JsonParser, JsonValue};
+//!
+//! // Parse a JSON string
+//! let json_str = r#"{"name": "Alice", "age": 30}"#;
+//! let mut parser = JsonParser::new(json_str.to_string());
+//! let value = parser.parse().expect("Failed to parse JSON");
+//!
+//! // Work with the parsed data
+//! if let JsonValue::Obj(map) = value {
+//!     if let Some(JsonValue::Str(name)) = map.get("name") {
+//!         assert_eq!(name, "Alice");
+//!     }
+//!     if let Some(JsonValue::Int(age)) = map.get("age") {
+//!         assert_eq!(*age, 30);
+//!     }
+//! }
+//! ```
+
+/// Error types for serialization and deserialization
 pub mod error;
 
 use crate::types::error::DeserializeError;
 use std::collections::HashMap;
 
+/// Represents a JSON value.
+///
+/// This enum can represent any valid JSON data type:
+/// - `Int`: A 64-bit signed integer
+/// - `Float`: A 64-bit floating point number
+/// - `Bool`: A boolean value (true or false)
+/// - `Str`: A UTF-8 encoded string
+/// - `Arr`: An ordered array of JSON values
+/// - `Obj`: A key-value map where keys are strings and values are JSON values
+/// - `Null`: The JSON null value
+///
+/// # Examples
+///
+/// Creating a JSON object:
+/// ```
+/// use karya_json::types::JsonValue;
+/// use std::collections::HashMap;
+///
+/// let mut map = HashMap::new();
+/// map.insert("name".to_string(), JsonValue::Str("Alice".to_string()));
+/// map.insert("age".to_string(), JsonValue::Int(30));
+///
+/// let json_obj = JsonValue::Obj(map);
+/// ```
 #[derive(Debug)]
 pub enum JsonValue {
+    /// A 64-bit signed integer
     Int(i64),
+    /// A 64-bit floating point number
     Float(f64),
+    /// A boolean value (true or false)
     Bool(bool),
+    /// A UTF-8 encoded string
     Str(String),
+    /// An ordered array of JSON values
     Arr(Vec<JsonValue>),
+    /// A key-value map where keys are strings and values are JSON values
     Obj(HashMap<String, JsonValue>),
+    /// The JSON null value
     Null,
 }
 
 use std::fmt;
 
+/// Implements the Display trait for JsonValue to enable serialization to JSON strings.
+///
+/// This implementation follows the JSON specification for formatting:
+/// - Strings are enclosed in double quotes with proper escaping
+/// - Arrays are enclosed in square brackets with comma-separated values
+/// - Objects are enclosed in curly braces with comma-separated key-value pairs
+/// - Numbers, booleans, and null are formatted according to JSON standards
+///
+/// # Examples
+///
+/// ```
+/// use karya_json::types::JsonValue;
+///
+/// let json_value = JsonValue::Bool(true);
+/// assert_eq!(format!("{}", json_value), "true");
+///
+/// let json_value = JsonValue::Str("Hello, world!".to_string());
+/// assert_eq!(format!("{}", json_value), "\"Hello, world!\"");
+/// ```
 impl fmt::Display for JsonValue {
+    /// Formats the JsonValue as a JSON string.
+    ///
+    /// This method is automatically called when using string formatting macros
+    /// like `format!`, `println!`, etc. with a JsonValue.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             JsonValue::Int(n) => write!(f, "{}", n),
@@ -48,13 +130,49 @@ impl fmt::Display for JsonValue {
     }
 }
 
+/// A parser for converting JSON strings into `JsonValue` instances.
+///
+/// The `JsonParser` provides methods for parsing JSON strings according to the
+/// JSON specification. It handles all valid JSON data types and provides detailed
+/// error messages for invalid JSON.
+///
+/// # Examples
+///
+/// ```
+/// use karya_json::types::{JsonParser, JsonValue};
+///
+/// let json_str = r#"{"name": "Alice", "age": 30, "is_active": true}"#;
+/// let mut parser = JsonParser::new(json_str.to_string());
+/// let result = parser.parse();
+///
+/// assert!(result.is_ok());
+/// ```
 #[derive(Debug, Clone)]
 pub struct JsonParser {
+    /// The input JSON string as a vector of characters
     input: Vec<char>,
+    /// The current position in the input
     position: usize,
 }
 
 impl JsonParser {
+    /// Creates a new JSON parser for the given input string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The JSON string to parse
+    ///
+    /// # Returns
+    ///
+    /// A new `JsonParser` instance initialized with the input string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use karya_json::types::JsonParser;
+    ///
+    /// let parser = JsonParser::new(r#"{"key": "value"}"#.to_string());
+    /// ```
     pub fn new(input: String) -> Self {
         Self {
             input: input.chars().collect(),
@@ -62,7 +180,32 @@ impl JsonParser {
         }
     }
 
-    // Main parsing entry point
+    /// Parses the input JSON string into a `JsonValue`.
+    ///
+    /// This is the main entry point for parsing JSON. It parses the entire input
+    /// string and returns a `JsonValue` representing the parsed JSON data.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(JsonValue)` - If the input is valid JSON
+    /// * `Err(DeserializeError)` - If the input is invalid JSON
+    ///
+    /// # Errors
+    ///
+    /// Returns a `DeserializeError` if:
+    /// * The input is not valid JSON
+    /// * There are unexpected trailing characters after the JSON value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use karya_json::types::{JsonParser, JsonValue};
+    ///
+    /// let mut parser = JsonParser::new(r#"{"name": "Alice"}"#.to_string());
+    /// let result = parser.parse();
+    ///
+    /// assert!(result.is_ok());
+    /// ```
     pub fn parse(&mut self) -> Result<JsonValue, DeserializeError> {
         self.skip_whitespace();
         let value = self.parse_value()?;
@@ -176,13 +319,13 @@ impl JsonParser {
         let mut has_decimal = false;
         let mut has_exponent = false;
         let mut is_negative = false;
-    
+
         // Handle negative numbers
         if self.peek_char() == Some('-') {
             is_negative = true;
             number_str.push(self.next_char().unwrap());
         }
-    
+
         // Parse integer part
         match self.peek_char() {
             Some('0') => {
@@ -202,12 +345,12 @@ impl JsonParser {
                 ));
             }
         }
-    
+
         // Parse decimal part
         if self.peek_char() == Some('.') {
             has_decimal = true;
             number_str.push(self.next_char().unwrap());
-    
+
             let mut has_digits = false;
             while let Some(c) = self.peek_char() {
                 if !c.is_ascii_digit() {
@@ -216,25 +359,25 @@ impl JsonParser {
                 has_digits = true;
                 number_str.push(self.next_char().unwrap());
             }
-    
+
             if !has_digits {
                 return Err(DeserializeError::InvalidJson(
                     "Expected digits after decimal point".to_string(),
                 ));
             }
         }
-    
+
         // Parse exponent
         if let Some('e' | 'E') = self.peek_char() {
             has_exponent = true;
             number_str.push(self.next_char().unwrap());
-    
+
             // Handle exponent sign
             match self.peek_char() {
                 Some('+' | '-') => number_str.push(self.next_char().unwrap()),
                 _ => {}
             }
-    
+
             let mut has_digits = false;
             while let Some(c) = self.peek_char() {
                 if !c.is_ascii_digit() {
@@ -243,14 +386,14 @@ impl JsonParser {
                 has_digits = true;
                 number_str.push(self.next_char().unwrap());
             }
-    
+
             if !has_digits {
                 return Err(DeserializeError::InvalidJson(
                     "Expected digits in exponent".to_string(),
                 ));
             }
         }
-    
+
         // If it's an integer with no decimal or exponent, parse as i64
         if !has_decimal && !has_exponent {
             match number_str.parse::<i64>() {
@@ -474,21 +617,21 @@ mod tests {
             JsonValue::Int(n) => assert_eq!(n, 123),
             _ => panic!("Expected JsonValue::Int"),
         }
-        
+
         // Test float parsing
         let mut parser = JsonParser::new("123.456".to_string());
         match parser.parse_number().unwrap() {
             JsonValue::Float(n) => assert_eq!(n, 123.456),
             _ => panic!("Expected JsonValue::Float"),
         }
-    
+
         // Test negative float with exponent
         let mut parser = JsonParser::new("-123.456e-10".to_string());
         match parser.parse_number().unwrap() {
             JsonValue::Float(n) => assert_eq!(n, -123.456e-10),
             _ => panic!("Expected JsonValue::Float"),
         }
-        
+
         // Test integer with exponent (should be a float)
         let mut parser = JsonParser::new("123e2".to_string());
         match parser.parse_number().unwrap() {
@@ -542,11 +685,11 @@ mod tests {
             "score": 98.6,
             "exp": 1.23e4
         }"#;
-    
+
         let mut parser = JsonParser::new(json.to_string());
         let result = parser.parse();
         assert!(result.is_ok());
-        
+
         // Verify that the parsed result contains correctly typed numbers
         if let Ok(JsonValue::Obj(obj)) = result {
             // Verify integer
@@ -555,14 +698,14 @@ mod tests {
             } else {
                 panic!("Expected age to be an integer");
             }
-            
+
             // Verify float
             if let Some(JsonValue::Float(score)) = obj.get("score") {
                 assert_eq!(*score, 98.6);
             } else {
                 panic!("Expected score to be a float");
             }
-            
+
             // Verify exponent
             if let Some(JsonValue::Float(exp)) = obj.get("exp") {
                 assert_eq!(*exp, 12300.0);
