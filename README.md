@@ -58,6 +58,25 @@ Karya JSON provides detailed error types for both serialization and deserializat
 - `DeserializeError::TypeMismatch`: When a value has an unexpected type
 - `DeserializeError::InvalidValue`: When a value is invalid for its context
 
+## Benchmarks
+
+The project includes a benchmark package that compares the performance and memory usage of Karya JSON against Serde JSON:
+
+```bash
+# Run all benchmarks
+cargo bench -p karya_json_benchmarks
+
+# Run a specific benchmark group
+cargo bench -p karya_json_benchmarks -- "String to Value"
+```
+
+The benchmarks measure:
+- String to Value conversion (parsing)
+- Value to String conversion (stringifying)
+- Memory usage during these operations
+
+See the [karya_json_benchmarks/README.md](karya_json_benchmarks/README.md) file for more details.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

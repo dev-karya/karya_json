@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "karya_json_core",
+    "karya_json_benchmarks",
 ]
 
 # Workspace-wide settings
