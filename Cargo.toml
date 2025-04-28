@@ -1,6 +1,7 @@
-[package]
-name = "karya_json"
-version = "0.0.1"
-edition = "2024"
+[workspace]
+members = [
+    "karya_json_core",
+]
 
-[dependencies]
+# Workspace-wide settings
+resolver = "3"
