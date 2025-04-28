@@ -94,6 +94,28 @@ use std::fmt;
 /// let json_value = JsonValue::Str("Hello, world!".to_string());
 /// assert_eq!(format!("{}", json_value), "\"Hello, world!\"");
 /// ```
+/// Helper function to write an escaped JSON string to a formatter
+fn escape_json_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+    write!(f, "\"")?;
+    for c in s.chars() {
+        match c {
+            // Required escapes according to RFC 8259
+            '"' => write!(f, "\\\"")?,
+            '\\' => write!(f, "\\\\")?,
+            '\x08' => write!(f, "\\b")?,
+            '\x0C' => write!(f, "\\f")?,
+            '\n' => write!(f, "\\n")?,
+            '\r' => write!(f, "\\r")?,
+            '\t' => write!(f, "\\t")?,
+            // Escape control characters with \u
+            c if c.is_control() => write!(f, "\\u{:04x}", c as u32)?,
+            // Regular characters
+            _ => write!(f, "{}", c)?,
+        }
+    }
+    write!(f, "\"")
+}
+
 impl fmt::Display for JsonValue {
     /// Formats the JsonValue as a JSON string.
     ///
@@ -102,9 +124,16 @@ impl fmt::Display for JsonValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             JsonValue::Int(n) => write!(f, "{}", n),
-            JsonValue::Float(n) => write!(f, "{}", n),
+            JsonValue::Float(n) => {
+                // Handle special float values according to JSON spec
+                if n.is_nan() || n.is_infinite() {
+                    write!(f, "null") // JSON doesn't support NaN or Infinity
+                } else {
+                    write!(f, "{}", n)
+                }
+            },
             JsonValue::Bool(b) => write!(f, "{}", b),
-            JsonValue::Str(s) => write!(f, "\"{}\"", s.replace('\"', "\\\"").replace('\n', "\\n")),
+            JsonValue::Str(s) => escape_json_string(f, s),
             JsonValue::Arr(arr) => {
                 write!(f, "[")?;
                 for (i, val) in arr.iter().enumerate() {
@@ -121,7 +150,9 @@ impl fmt::Display for JsonValue {
                     if i > 0 {
                         write!(f, ",")?;
                     }
-                    write!(f, "\"{}\":{}", key, val)?;
+                    // Properly escape the key
+                    escape_json_string(f, key)?;
+                    write!(f, ":{}", val)?;
                 }
                 write!(f, "}}")
             }
@@ -241,12 +272,12 @@ impl JsonParser {
         }
     }
 
-    // String parsing
+    // String parsing according to RFC 8259
     fn parse_string(&mut self) -> Result<String, DeserializeError> {
         self.expect_char('"')?;
         let mut result = String::new();
         let mut is_escaped = false;
-
+    
         while let Some(c) = self.next_char() {
             match (is_escaped, c) {
                 (true, '"') => {
@@ -285,7 +316,8 @@ impl JsonParser {
                     result.push(self.parse_unicode_escape()?);
                     is_escaped = false;
                 }
-                (true, _) => {
+                (true, c) => {
+                    // RFC 8259 only allows specific escape sequences
                     return Err(DeserializeError::InvalidJson(format!(
                         "Invalid escape sequence: \\{}",
                         c
@@ -297,10 +329,12 @@ impl JsonParser {
                 (false, '\\') => {
                     is_escaped = true;
                 }
-                (false, c) if c.is_control() => {
-                    return Err(DeserializeError::InvalidJson(
-                        "Control characters are not allowed in strings".to_string(),
-                    ));
+                (false, c) if c.is_ascii_control() => {
+                    // RFC 8259 prohibits unescaped control characters (U+0000 through U+001F)
+                    return Err(DeserializeError::InvalidJson(format!(
+                        "Unescaped control character (0x{:02X}) in string",
+                        c as u32
+                    )));
                 }
                 (false, c) => {
                     result.push(c);
@@ -318,11 +352,9 @@ impl JsonParser {
         let mut number_str = String::new();
         let mut has_decimal = false;
         let mut has_exponent = false;
-        let mut is_negative = false;
-
+    
         // Handle negative numbers
         if self.peek_char() == Some('-') {
-            is_negative = true;
             number_str.push(self.next_char().unwrap());
         }
 
@@ -478,16 +510,25 @@ impl JsonParser {
         self.expect_char('{')?;
         let mut object = HashMap::new();
         self.skip_whitespace();
-
+    
         if self.peek_char() == Some('}') {
             self.next_char();
             return Ok(object);
         }
-
+    
         loop {
             self.skip_whitespace();
             let key = self.parse_string()?;
             self.skip_whitespace();
+    
+            // Check for duplicate keys - RFC 8259 recommends implementations
+            // should either prevent or report duplicate names
+            if object.contains_key(&key) {
+                return Err(DeserializeError::InvalidJson(format!(
+                    "Duplicate key '{}' in object",
+                    key
+                )));
+            }
 
             self.expect_char(':')?;
             self.skip_whitespace();
@@ -517,7 +558,7 @@ impl JsonParser {
     }
 
     // Helper methods
-    fn parse_unicode_escape(&mut self) -> Result<char, DeserializeError> {
+    fn parse_four_hex_digits(&mut self) -> Result<u32, DeserializeError> {
         let mut code_point = 0u32;
         for _ in 0..4 {
             code_point = code_point * 16
@@ -535,9 +576,44 @@ impl JsonParser {
                     }
                 };
         }
-
+        Ok(code_point)
+    }
+    
+    fn parse_unicode_escape(&mut self) -> Result<char, DeserializeError> {
+        let code_point = self.parse_four_hex_digits()?;
+        
+        // Handle surrogate pairs according to RFC 8259
+        if (0xD800..=0xDBFF).contains(&code_point) {
+            // High surrogate, must be followed by low surrogate
+            if self.peek_char() == Some('\\') {
+                self.next_char(); // Consume the backslash
+                if self.peek_char() == Some('u') {
+                    self.next_char(); // Consume the 'u'
+                    let low_surrogate = self.parse_four_hex_digits()?;
+                    return if (0xDC00..=0xDFFF).contains(&low_surrogate) {
+                        // Calculate the combined code point
+                        let combined = 0x10000 + (((code_point - 0xD800) << 10) | (low_surrogate - 0xDC00));
+                        char::from_u32(combined).ok_or_else(|| {
+                            DeserializeError::InvalidJson(format!("Invalid Unicode surrogate pair: U+{:04X} U+{:04X}", code_point, low_surrogate))
+                        })
+                    } else {
+                        Err(DeserializeError::InvalidJson(
+                            format!("Invalid low surrogate in Unicode surrogate pair: U+{:04X}", low_surrogate)
+                        ))
+                    }
+                }
+            }
+            return Err(DeserializeError::InvalidJson(
+                format!("High surrogate U+{:04X} not followed by low surrogate", code_point)
+            ));
+        } else if (0xDC00..=0xDFFF).contains(&code_point) {
+            return Err(DeserializeError::InvalidJson(
+                format!("Unexpected low surrogate: U+{:04X}", code_point)
+            ));
+        }
+        
         char::from_u32(code_point).ok_or_else(|| {
-            DeserializeError::InvalidJson(format!("Invalid Unicode code point: {}", code_point))
+            DeserializeError::InvalidJson(format!("Invalid Unicode code point: U+{:04X}", code_point))
         })
     }
 
@@ -670,6 +746,53 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_keys() {
+        let mut parser = JsonParser::new(r#"{"name": "John", "name": "Jane"}"#.to_string());
+        let result = parser.parse();
+        assert!(result.is_err(), "Parsing duplicate keys should fail");
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Duplicate key"));
+        }
+    }
+
+    #[test]
+    fn test_unicode_escape_sequences() {
+        // Basic Unicode escape
+        let mut parser = JsonParser::new(r#""\u0041\u0042\u0043""#.to_string());
+        assert_eq!(parser.parse_string().unwrap(), "ABC");
+
+        // Surrogate pair (represents 😀 emoji, U+1F600)
+        let mut parser = JsonParser::new(r#""\uD83D\uDE00""#.to_string());
+        assert_eq!(parser.parse_string().unwrap(), "😀");
+    }
+
+    #[test]
+    fn test_invalid_surrogate_pairs() {
+        // High surrogate without low surrogate
+        let mut parser = JsonParser::new(r#""\uD83D""#.to_string());
+        assert!(parser.parse_string().is_err());
+
+        // Low surrogate without high surrogate
+        let mut parser = JsonParser::new(r#""\uDE00""#.to_string());
+        assert!(parser.parse_string().is_err());
+
+        // High surrogate followed by something that's not a low surrogate
+        let mut parser = JsonParser::new(r#""\uD83Dz""#.to_string());
+        assert!(parser.parse_string().is_err());
+    }
+
+    #[test]
+    fn test_string_escaping_display() {
+        // Test basic escaping
+        let json_value = JsonValue::Str("Hello \"world\"\nNew line".to_string());
+        assert_eq!(format!("{}", json_value), r#""Hello \"world\"\nNew line""#);
+        
+        // Test control character escaping
+        let json_value = JsonValue::Str("Tab\tBackspace\x08".to_string());
+        assert_eq!(format!("{}", json_value), r#""Tab\tBackspace\b""#);
+    }
+
+    #[test]
     fn test_complex_json() {
         let json = r#"
         {
@@ -683,7 +806,9 @@ mod tests {
             },
             "phone": null,
             "score": 98.6,
-            "exp": 1.23e4
+            "exp": 1.23e4,
+            "credit_score": -120,
+            "total_bank_balance": -20.012
         }"#;
 
         let mut parser = JsonParser::new(json.to_string());
@@ -711,6 +836,20 @@ mod tests {
                 assert_eq!(*exp, 12300.0);
             } else {
                 panic!("Expected exp to be a float");
+            }
+
+            // Verify negative int
+            if let Some(JsonValue::Int(negative_num)) = obj.get("credit_score") {
+                assert_eq!(*negative_num, -120);
+            } else {
+                panic!("Expected credit_score to be a -ve integer");
+            }
+
+            // Verify negative float
+            if let Some(JsonValue::Float(negative_num)) = obj.get("total_bank_balance") {
+                assert_eq!(*negative_num, -20.012);
+            } else {
+                panic!("Expected total_bank_balance to be a -ve float");
             }
         } else {
             panic!("Failed to parse complex JSON");

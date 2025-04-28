@@ -20,6 +20,9 @@
 //! }
 //! ```
 
+use std::fmt;
+use std::error::Error;
+
 /// Errors that can occur during JSON serialization.
 ///
 /// This enum represents the various errors that can occur when converting
@@ -55,6 +58,18 @@ pub enum SerializeError {
     /// The string contains a description of the structure error.
     InvalidStructure(String),
 }
+
+impl fmt::Display for SerializeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SerializeError::InvalidType(msg) => write!(f, "Invalid type for JSON serialization: {}", msg),
+            SerializeError::InvalidValue(msg) => write!(f, "Invalid value for JSON serialization: {}", msg),
+            SerializeError::InvalidStructure(msg) => write!(f, "Invalid structure for JSON serialization: {}", msg),
+        }
+    }
+}
+
+impl Error for SerializeError {}
 
 /// Errors that can occur during JSON deserialization.
 ///
@@ -100,3 +115,16 @@ pub enum DeserializeError {
     /// The string contains a description of the value error.
     InvalidValue(String),
 }
+
+impl fmt::Display for DeserializeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeserializeError::InvalidJson(msg) => write!(f, "Invalid JSON: {}", msg),
+            DeserializeError::MissingField(field) => write!(f, "Missing required field: {}", field),
+            DeserializeError::TypeMismatch(msg) => write!(f, "Type mismatch in JSON: {}", msg),
+            DeserializeError::InvalidValue(msg) => write!(f, "Invalid value in JSON: {}", msg),
+        }
+    }
+}
+
+impl Error for DeserializeError {}

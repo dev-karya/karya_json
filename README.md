@@ -42,10 +42,12 @@ Karya JSON provides a simple API for parsing JSON strings and working with JSON 
 
 ## Features
 
+- **RFC 8259 Compliant**: Fully compliant with the JSON specification (RFC 8259)
 - **Parsing**: Convert JSON strings into Rust data structures
 - **Serialization**: Convert Rust data structures into JSON strings
 - **Type Safety**: Strong typing for JSON values
 - **Error Handling**: Detailed error messages for parsing and serialization issues
+- **Unicode Support**: Complete Unicode support including surrogate pairs
 
 ## Error Handling
 
